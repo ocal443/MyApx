@@ -1,12 +1,16 @@
 import enum
+import inspect
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Union
 
-CAN_OBJECT_DESCRIPTIONS = []
+if TYPE_CHECKING:
+    from linear_stage import FestoDevice
 
-@enum.unique
+
 class SdoAccessError(enum.Enum):
     ProtocolError_ToggleBit = 0x05030000
     ProtocolError_ClientServerCommandSpecifierInvalid = 0x05040001
-    AccessFaulty_HardwareProblem = 0x06060000  # *1)
+    AccessFaulty_HardwareProblem = 0x06060000
     AccessTypeNotSupported = 0x06010000
     ReadAccessOnly = 0x06010001
     WriteAccessOnly = 0x06010002
@@ -23,106 +27,217 @@ class SdoAccessError(enum.Enum):
     DataTooLarge = 0x06090031
     DataTooSmall = 0x06090032
     UpperLimitLessThanLower = 0x06090036
-    DataTransmissionOrStorageFailure = 0x08000020  # *1)
+    DataTransmissionOrStorageFailure = 0x08000020
     DataTransmissionRegulatorLocal = 0x08000021
-    DataTransmissionRegulatorIncorrectState = 0x08000022  # *3)
-    NoObjectDictionaryAvailable = 0x08000023  # *2
+    DataTransmissionRegulatorIncorrectState = 0x08000022
+    NoObjectDictionaryAvailable = 0x08000023
 
 
-# name, index, subindex, wordsize, fields[mask, shift, binary_value]
-control_obj = ("control", 0x6040, 0, 2, {
-    "shutdown"              : (0x7, 0, 0b110),
-    "switch_on"             : (0xF, 0, 0b111),
-    "disable_voltage"       : (0x2, 1, 0b0),
-    "quick_stop"            : (0x6, 1),
-    "disable_operation"     : (0xF, 0, 0b0111),
-    "enable_operation"      : (0xF, 0, 0b1111),
-    "new_set_point"         : (0x10, 4),  # In profile position mode
-    "start_homing_operation": (0x10, 4),  # In homing mode
-    "enable_ip_mode"        : (0x10, 4),  # In interpolated position mode
-    "change_set_immediately": (0x20, 5),  # Only in profile position mode
-    "relative"     : (0x40, 6),  # Only inprofile position mode
-    "reset_fault"           : (0x80, 7),
-    "halt"                  : (0x100, 8),
-}
-               )  # RW
+@dataclass(frozen=True)
+class ValueField:
+    mask: int
+    shift: int
 
-status_obj = ("status", 0x6041, 0, 2, {
-    "not_ready_to_switch_on": (0x4f, 0, 0x0),
-    "switch_on_disabled"    : (0x4f, 0, 0x40),
-    "ready_to_switch_on"    : (0x6f, 0, 0x21),
-    "switched_on"           : (0x6f, 0, 0x23),
-    "operation_enable"      : (0x6f, 0, 0x27),
-    "quick_stop_active"     : (0x6f, 0, 0x7),
-    "fault_reaction_active" : (0x4f, 0, 0xF),
-    "fault"                 : (0x4f, 0, 0x8),
-    "voltage_enabled"       : (0x10, 4),
-    "warning"               : (0x80, 7),
-    "drive_is_moving"       : (0x100, 8),
-    "remote"                : (0x200, 9),
-    "target_reached"        : (0x400, 10),  # In profile position & velocity mode
-    "internal_limit_active" : (0x800, 11),
-    "set_point_acknowledge" : (0x1000, 12),  # In profile position mode
-    "speed_0"               : (0x1000, 12),  # In profile velocity mode
-    "homing_attained"       : (0x1000, 12),  # In homing mode
-    "ip_mode_active"        : (0x1000, 12),  # In interpolated position mode
-    "following_error"       : (0x2000, 13),  # In profile velocity mode
-    "homing_error"          : (0x2000, 13),  # in homing mode
-    "manufacturer_statusbit": (0x4000, 14),
-    "drive_refernced"       : (0x8000, 15),
-})  # RO
+    def read(self, raw_object_value: int) -> int:
+        return (raw_object_value & self.mask) >> self.shift
 
-enable_logic_obj = ("enable_logic", 0x6510, 0x10, 2, {
-    "enable_logic": (0x3, 0)  #
-})
+    def write(self, current_object_value: int, value_to_set: int) -> int:
+        return (current_object_value & ~self.mask) | (
+            (value_to_set << self.shift) & self.mask
+        )
 
-modes_of_operation_obj = ("modes_of_operation", 0x6060, 0, 1, {
-    "profile_position_mode"     : (0xFF, 0, 1),
-    "profile_velocity_mode"     : (0xFF, 0, 3),
-    "torque_profile_mode"       : (0xFF, 0, 4),
-    "homing_mode"               : (0xFF, 0, 6),
-    "interpolated_position_mode": (0xFF, 0, 7),
-})
 
-modes_of_operation_display_obj = ("modes_of_operation_display", 0x6061, 0, 1, {
-})
+@dataclass(frozen=True)
+class FlagField:
+    mask: int
+    shift: int
+    pattern: int  # The specific bit pattern that means "true" for this flag
 
-limit_switch_polarity_obj = ("limit_switch_polarity", 0x6510, 0x11, 2, {
-    "normally_closed" : (0b1, 0, 0),
-    "normally_open"   : (0b1, 0, 1)
-})
+    def read(self, raw_object_value: int) -> bool:
+        return ((raw_object_value & self.mask) >> self.shift) == self.pattern
 
-target_position_obj = ("target_position", 0x607A, 0, 4, {
-    "value" : (0xFFFFFFFF, 0)
-})
+    def write(self, current_object_value: int) -> int:
+        # When "writing" a flag, we set its defined pattern.
+        # The actual value passed in update() for a FlagField is ignored,
+        # its presence implies setting the flag.
+        return (current_object_value & ~self.mask) | (
+            (self.pattern << self.shift) & self.mask
+        )
 
-profile_velocity_obj = ("profile_velocity", 0x6081, 0, 4, {
-    "value" : (0xFFFFFFFF, 0)
-})
 
-profile_acceleration_obj = ("profile_acceleration", 0x6083, 0, 4, {
-    "value" : (0xFFFFFFFF, 0)
-})
+FieldDefinition = Union[ValueField, FlagField]
 
-profile_deceleration_obj = ("profile_deceleration", 0x6084, 0, 4, {
-    "value" : (0xFFFFFFFF, 0)
-})
 
-position_factor_numerator_obj = ("position_factor_numerator", 0x6093, 1, 4, {
-    "value": (0xFFFFFFFF, 0)
-})
+class CanObjectBase:
+    INDEX: int
+    SUB_INDEX: int
+    SIZE: int
+    _object_name: str
 
-position_factor_divisor_obj = ("position_factor_divisor", 0x6093, 2, 4, {
-    "value": (0xFFFFFFFF, 0)
-})
+    def __init__(self, device: "FestoDevice"):
+        self._device = device
 
-manufacturer_statusword_1 = ("manufacturer_status_word1", 0x2000, 1, 4,
-    {
-        "is_referenced" : (0b1, 0),
-        "communication_valid" : (0b1, 1),
-        "ready_for_enable" : (0b1, 2),
-    })
+    def _get_field_def(self, field_name: str) -> FieldDefinition:
+        field_def = getattr(self.__class__, field_name, None)
+        if not isinstance(field_def, (ValueField, FlagField)):
+            raise AttributeError(
+                f"'{field_name}' is not a valid field for {self.__class__.__name__}"
+            )
+        return field_def
 
-CAN_OBJECTS_DESCRIPTIONS = [control_obj, status_obj, enable_logic_obj, modes_of_operation_obj, modes_of_operation_display_obj,
-    limit_switch_polarity_obj, target_position_obj, profile_velocity_obj, profile_acceleration_obj,
-    profile_deceleration_obj, manufacturer_statusword_1, position_factor_numerator_obj, position_factor_divisor_obj]
+    def read(self, field: str | None = None) -> int | bool:
+        raw_val = self._device.sdo_read(self._object_name)
+        if field is None:
+            return raw_val
+        field_def = self._get_field_def(field)
+        return field_def.read(raw_val)
+
+    def write(self, value: int) -> int:
+        return self._device.sdo_write(self._object_name, value)
+
+    def update(self, **fields: int) -> int:
+        current_val = self._device.sdo_read(self._object_name)
+
+        for field_name, value_to_set in fields.items():
+            field_def = self._get_field_def(field_name)
+            if isinstance(field_def, ValueField):
+                current_val = field_def.write(current_val, value_to_set)
+            elif isinstance(field_def, FlagField):
+                if value_to_set:  # Or any true-ish value
+                    current_val = field_def.write(current_val)
+                else:
+                    current_val = (
+                        current_val & ~field_def.mask
+                    )  # Clears all bits in the mask
+
+        return self._device.sdo_write(self._object_name, current_val)
+
+    @classmethod
+    def field_names(cls) -> list[str]:
+        return [
+            name
+            for name, value in inspect.getmembers(cls)
+            if isinstance(value, (ValueField, FlagField))
+        ]
+
+
+class Control(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6040, 0, 2, "control"
+    # fmt: off
+    shutdown              : FlagField  = FlagField(mask=0x7,   shift=0, pattern=0b110)
+    switch_on             : FlagField  = FlagField(mask=0xF,   shift=0, pattern=0b111)
+    disable_voltage       : FlagField  = FlagField(mask=0x2,   shift=1, pattern=0b0)
+    quick_stop            : ValueField = ValueField(mask=0x6,  shift=1) # This is a 2-bit field
+    disable_operation     : FlagField  = FlagField(mask=0xF,   shift=0, pattern=0b0111)
+    enable_operation      : FlagField  = FlagField(mask=0xF,   shift=0, pattern=0b1111)
+    new_set_point         : FlagField  = FlagField(mask=0x10,  shift=4, pattern=1)
+    start_homing_operation: FlagField  = FlagField(mask=0x10,  shift=4, pattern=1)
+    enable_ip_mode        : FlagField  = FlagField(mask=0x10,  shift=4, pattern=1)
+    change_set_immediately: FlagField  = FlagField(mask=0x20,  shift=5, pattern=1)
+    relative              : FlagField  = FlagField(mask=0x40,  shift=6, pattern=1)
+    reset_fault           : FlagField  = FlagField(mask=0x80,  shift=7, pattern=1)
+    halt                  : FlagField  = FlagField(mask=0x100, shift=8, pattern=1)
+    # fmt on
+
+
+class Status(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6041, 0, 2, "status"
+    # fmt: off
+    # DSP402 State Flags (derived from bits 0-3, 5, 6 as per Tab 7.4)
+    not_ready_to_switch_on: FlagField = FlagField(mask=0x4F, shift=0, pattern=0x00)
+    switch_on_disabled    : FlagField = FlagField(mask=0x4F, shift=0, pattern=0x40)
+    ready_to_switch_on    : FlagField = FlagField(mask=0x6F, shift=0, pattern=0x21)
+    switched_on           : FlagField = FlagField(mask=0x6F, shift=0, pattern=0x23)
+    operation_enable      : FlagField = FlagField(mask=0x6F, shift=0, pattern=0x27)
+    quick_stop_active     : FlagField = FlagField(mask=0x6F, shift=0, pattern=0x07)
+    fault_reaction_active : FlagField = FlagField(mask=0x4F, shift=0, pattern=0x0F)
+    fault                 : FlagField = FlagField(mask=0x4F, shift=0, pattern=0x08)
+
+    # Individual Status Bits as per Tab 7.5
+    voltage_enabled       : FlagField = FlagField(mask=(1<<4),  shift=4,  pattern=1)
+    warning               : FlagField = FlagField(mask=(1<<7),  shift=7,  pattern=1)
+    drive_is_moving       : FlagField = FlagField(mask=(1<<8),  shift=8,  pattern=1)
+    remote                : FlagField = FlagField(mask=(1<<9),  shift=9,  pattern=1)
+    target_reached        : FlagField = FlagField(mask=(1<<10), shift=10, pattern=1)
+    internal_limit_active : FlagField = FlagField(mask=(1<<11), shift=11, pattern=1)
+
+    # Bit 12 - mode dependent flags
+    set_point_acknowledge : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1)
+    speed_0               : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1) # Same bit, different meaning
+    homing_attained       : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1) # Same bit, different meaning
+    ip_mode_active        : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1) # Same bit, different meaning
+
+    # Bit 13 - mode dependent flags
+    following_error       : FlagField = FlagField(mask=(1<<13), shift=13, pattern=1)
+    homing_error          : FlagField = FlagField(mask=(1<<13), shift=13, pattern=1) # Same bit, different meaning
+
+    manufacturer_statusbit: FlagField = FlagField(mask=(1<<14), shift=14, pattern=1)
+    drive_referenced      : FlagField = FlagField(mask=(1<<15), shift=15, pattern=1)
+    # fmt on
+
+
+class EnableLogic(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6510, 0x10, 2, "enable_logic"
+    enable_logic: ValueField = ValueField(mask=0x3, shift=0)  # This is a 2-bit value
+
+
+class ModesOfOperation(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6060, 0, 1, "modes_of_operation"
+    # fmt: off
+    profile_position_mode     : FlagField = FlagField(mask=0xFF, shift=0, pattern=1)
+    profile_velocity_mode     : FlagField = FlagField(mask=0xFF, shift=0, pattern=3)
+    torque_profile_mode       : FlagField = FlagField(mask=0xFF, shift=0, pattern=4)
+    homing_mode               : FlagField = FlagField(mask=0xFF, shift=0, pattern=6)
+    interpolated_position_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=7)
+    # fmt on
+
+
+class ModesOfOperationDisplay(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6061, 0, 1, "modes_of_operation_display"
+
+
+class LimitSwitchPolarity(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6510, 0x11, 2, "limit_switch_polarity"
+    # fmt: off
+    normally_closed: FlagField = FlagField(mask=0b1, shift=0, pattern=0)
+    normally_open  : FlagField = FlagField(mask=0b1, shift=0, pattern=1)
+    # fmt on
+
+
+class TargetPosition(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x607A, 0, 4, "target_position"
+    value: ValueField = ValueField(mask=0xFFFFFFFF, shift=0)
+
+
+class ProfileVelocity(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6081, 0, 4, "profile_velocity"
+    value: ValueField = ValueField(mask=0xFFFFFFFF, shift=0)
+
+
+class ProfileAcceleration(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6083, 0, 4, "profile_acceleration"
+    value: ValueField = ValueField(mask=0xFFFFFFFF, shift=0)
+
+
+class ProfileDeceleration(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6084, 0, 4, "profile_deceleration"
+    value: ValueField = ValueField(mask=0xFFFFFFFF, shift=0)
+
+
+class ManufacturerStatusWord1(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x2000, 1, 4, "manufacturer_status_word1"
+    # fmt: off
+    is_referenced      : FlagField = FlagField(mask=(1<<0), shift=0, pattern=1)
+    communication_valid: FlagField = FlagField(mask=(1<<1), shift=1, pattern=1)
+    ready_for_enable   : FlagField = FlagField(mask=(1<<2), shift=2, pattern=1)
+    # fmt on
+
+
+class PositionFactorNumerator(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6093, 1, 4, "position_factor_numerator"
+    value: ValueField = ValueField(mask=0xFFFFFFFF, shift=0)
+
+
+class PositionFactorDivisor(CanObjectBase):
+    INDEX, SUB_INDEX, SIZE, _object_name = 0x6093, 2, 4, "position_factor_divisor"
+    value: ValueField = ValueField(mask=0xFFFFFFFF, shift=0)
