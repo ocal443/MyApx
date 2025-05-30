@@ -15,55 +15,13 @@ MOTOR_TO_AXIS_GEAR_RATION = 1.0
 
 class FestoDevice:
     def __init__(self, port: str):
-        self.serial = self._open_serial_connection(port)
+        self.serial = serial.Serial(port=port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=True, dsrdtr=False, )
+        self.last_object_read: Tuple[int, int, int] = (0x0, 0x0, 0x0)
 
-        self.control = Control(self)
-        self.status = Status(self)
-        self.enable_logic = EnableLogic(self)
-        self.modes_of_operation = ModesOfOperation(self)
-        self.modes_of_operation_display = ModesOfOperationDisplay(self)
-        self.limit_switch_polarity = LimitSwitchPolarity(self)
-        self.target_position = TargetPosition(self)
-        self.profile_velocity = ProfileVelocity(self)
-        self.profile_acceleration = ProfileAcceleration(self)
-        self.profile_deceleration = ProfileDeceleration(self)
-        self.manufacturer_status_word1 = ManufacturerStatusWord1(self)
-        self.position_factor_numerator = PositionFactorNumerator(self)
-        self.position_factor_divisor = PositionFactorDivisor(self)
-
-        self.last_read: Tuple[int, int, int] = (0x0, 0x0, 0x0)
-
-    @overload
-    def sdo_read(self, obj_name: str) -> int: ...
-
-    @overload
-    def sdo_read(self, obj_name: str, field: str) -> int | bool: ...
-
-    def sdo_read(self, obj_name: str, field: str | None = None) -> int | bool:
-        obj = getattr(self, obj_name)
-        return self._object_read(obj)
-
-    def sdo_write(self, obj_name: str, value: int) -> int:
-        obj = getattr(self, obj_name)
-        return self._object_write(obj, value)
-
-    def _open_serial_connection(self, port: str) -> serial.Serial:
-        return serial.Serial(
-            port=port,
-            baudrate=9600,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=None,
-            xonxoff=False,
-            rtscts=True,
-            dsrdtr=False,
-        )
-
-    def _write(self, msg: str) -> None:
+    def _serial_write(self, msg: str) -> None:
         self.serial.write((msg + "\r").encode())
 
-    def _read(self) -> str:
+    def _serial_read(self) -> str:
         return self.serial.read_until(b"\r")[:-1].decode()
 
     def _sdo_access(self, obj: CanObjectBase, wval: int | None) -> int:
@@ -72,8 +30,8 @@ class FestoDevice:
         else:
             rq = f"={obj.INDEX:04x}{obj.SUB_INDEX:02x}:{wval:0{obj.SIZE * 2}x}"
 
-        self._write(rq)
-        rs = self._read()
+        self._serial_write(rq)
+        rs = self._serial_read()
 
         if rs.startswith("!") and not rs.endswith("!"):
             raise RuntimeError(SdoAccessError(int(rs[1:9], 16)))
@@ -88,16 +46,70 @@ class FestoDevice:
         if (rs_idx, rs_sub_idx) != (obj.INDEX, obj.SUB_INDEX):
             raise RuntimeError(f"Invalid SDO response: rq:'{rq}', rs:'{rs}'")
 
-        if self.last_read != (obj.INDEX, obj.SUB_INDEX, rs_val):
-            self.last_read = (obj.INDEX, obj.SUB_INDEX, rs_val)
+        if self.last_object_read != (obj.INDEX, obj.SUB_INDEX, rs_val):
+            self.last_object_read = (obj.INDEX, obj.SUB_INDEX, rs_val)
 
         return rs_val
 
-    def _object_read(self, obj: CanObjectBase) -> int:
+    def object_read(self, obj: CanObjectBase) -> int:
         return self._sdo_access(obj, None)
 
-    def _object_write(self, obj: CanObjectBase, value: int) -> int:
+    def object_write(self, obj: CanObjectBase, value: int) -> int:
         return self._sdo_access(obj, value)
+
+
+class SerialController:
+    def __init__(self, device: FestoDevice):
+        self.device = device
+
+    def do_homing(self) -> Callable:
+        self.device._serial_write("OW:1:0010:00000022")
+        res = self.device._serial_read()
+        assert res == "OK!"
+
+        start = time.time()
+
+        def is_done():
+            nonlocal start
+            while time.time() - start < 10:
+                time.sleep(.1)
+            return True
+
+        return is_done
+
+    def do_program(self, program_id: int) -> Callable:
+        self.device._serial_write(f"OW:1:0010:{program_id:04x}0021")
+        res = self.device._serial_read()
+        assert res == "OK!"
+
+        start = time.time()
+
+        def is_done():
+            nonlocal start
+            while time.time() - start < 10:
+                time.sleep(.1)
+            return True
+
+        return is_done
+
+
+class CANController:
+    def __init__(self, device: FestoDevice):
+        self.device = device
+
+        self.control = Control(self.device)
+        self.status = Status(self.device)
+        self.enable_logic = EnableLogic(self.device)
+        self.modes_of_operation = ModesOfOperation(self.device)
+        self.modes_of_operation_display = ModesOfOperationDisplay(self.device)
+        self.limit_switch_polarity = LimitSwitchPolarity(self.device)
+        self.target_position = TargetPosition(self.device)
+        self.profile_velocity = ProfileVelocity(self.device)
+        self.profile_acceleration = ProfileAcceleration(self.device)
+        self.profile_deceleration = ProfileDeceleration(self.device)
+        self.manufacturer_status_word1 = ManufacturerStatusWord1(self.device)
+        self.position_factor_numerator = PositionFactorNumerator(self.device)
+        self.position_factor_divisor = PositionFactorDivisor(self.device)
 
     def _set_units(self) -> None:
         motor_to_gear = Fraction(MOTOR_TO_AXIS_GEAR_RATION)
@@ -107,36 +119,6 @@ class FestoDevice:
         num, denom = int(fraction.numerator), int(fraction.denominator)
         self.position_factor_numerator.write(num)
         self.position_factor_divisor.write(denom)
-
-    def do_homing(self, force=False) -> Callable:
-        print("start homing")
-        if not force and self.manufacturer_status_word1.read("is_referenced"):
-            return lambda: None
-        # special serial command, don't use CAN protocol?
-        self._write("OW:1:0010:00000022")
-        res = self._read()
-        assert res == "OK!"
-
-        def is_done():
-            print("Wait for homing to complete.")
-            while True:
-                time.sleep(0.1)
-                if self.manufacturer_status_word1.read("is_referenced"):
-                    print("Homing Completed.")
-                    break
-
-        return is_done
-
-    def do_program(self, prog_id: int) -> Callable:
-        self._write(f"OW:1:0010:{prog_id:04x}0021")
-        rs = self._read()
-        assert rs == "OK!", rs
-
-        def wait_complete():
-            while not self.status.read("target_reached"):
-                time.sleep(0.1)
-
-        return wait_complete
 
     def move_to(self, pos: float, v: float = 1, a: float = 0.1, relative=False):
         self._set_units()
@@ -181,8 +163,8 @@ class FestoDevice:
     def _get_drive_state(self):
         status_value = self.status.read()
         for field_name in ['not_ready_to_switch_on', 'switch_on_disabled',
-                        'ready_to_switch_on', 'switched_on', 'operation_enable',
-                        'quick_stop_active', 'fault_reaction_active', 'fault']:
+                           'ready_to_switch_on', 'switched_on', 'operation_enable',
+                           'quick_stop_active', 'fault_reaction_active', 'fault']:
             if getattr(Status, field_name).read(status_value):
                 return field_name
         raise RuntimeError("Failed to find drive state")
@@ -207,7 +189,7 @@ class FestoDevice:
         if not self.limit_switch_polarity.read("normally_closed"):
             raise RuntimeError("Expect normally closed limit switches.")
 
-        self.enable_logic.write(2) # physical signal + CAN logic for drive to function
+        self.enable_logic.write(2)  # physical signal + CAN logic for drive to function
         if not self.status.read("remote"):
             time.sleep(0.2)  # Give it a moment
             if not self.status.read("remote"):
@@ -254,9 +236,17 @@ class FestoDevice:
         print("Drive initialized successfully to OPERATION_ENABLED.")
 
 
+class FestoController(CANController, SerialController):
+    def __init__(self, port: str):
+        device = FestoDevice(port)
+        SerialController.__init__(self, device)
+        CANController.__init__(self, device)
+
+
 if __name__ == "__main__":
-    ctrl = FestoDevice("COM3")
+    ctrl = FestoController("COM3")
     ctrl.can_start()
-    wait_for_homing = ctrl.do_homing()
-    wait_for_homing()
-    ctrl.move_to(250, a=300, v=1000, relative=False)
+    # wait_for_homing = ctrl.do_homing()
+    # wait_for_homing()
+    # wait_for_prog = ctrl.do_program(10)
+    ctrl.move_to(0, a=300, v=1000, relative=False)

@@ -86,17 +86,17 @@ class CanObjectBase:
         return field_def
 
     def read(self, field: str | None = None) -> int | bool:
-        raw_val = self._device.sdo_read(self._object_name)
+        raw_val = self._device.object_read(self)
         if field is None:
             return raw_val
         field_def = self._get_field_def(field)
         return field_def.read(raw_val)
 
     def write(self, value: int) -> int:
-        return self._device.sdo_write(self._object_name, value)
+        return self._device.object_write(self, value)
 
     def update(self, **fields: int) -> int:
-        current_val = self._device.sdo_read(self._object_name)
+        current_val = self._device.object_read(self)
 
         for field_name, value_to_set in fields.items():
             field_def = self._get_field_def(field_name)
@@ -110,7 +110,7 @@ class CanObjectBase:
                         current_val & ~field_def.mask
                     )  # Clears all bits in the mask
 
-        return self._device.sdo_write(self._object_name, current_val)
+        return self._device.object_write(self, current_val)
 
     @classmethod
     def field_names(cls) -> list[str]:
@@ -124,26 +124,26 @@ class CanObjectBase:
 class Control(CanObjectBase):
     INDEX, SUB_INDEX, SIZE, _object_name = 0x6040, 0, 2, "control"
     # fmt: off
-    shutdown              : FlagField  = FlagField(mask=0x7,   shift=0, pattern=0b110)
-    switch_on             : FlagField  = FlagField(mask=0xF,   shift=0, pattern=0b111)
-    disable_voltage       : FlagField  = FlagField(mask=0x2,   shift=1, pattern=0b0)
-    quick_stop            : ValueField = ValueField(mask=0x6,  shift=1) # This is a 2-bit field
-    disable_operation     : FlagField  = FlagField(mask=0xF,   shift=0, pattern=0b0111)
-    enable_operation      : FlagField  = FlagField(mask=0xF,   shift=0, pattern=0b1111)
-    new_set_point         : FlagField  = FlagField(mask=0x10,  shift=4, pattern=1)
-    start_homing_operation: FlagField  = FlagField(mask=0x10,  shift=4, pattern=1)
-    enable_ip_mode        : FlagField  = FlagField(mask=0x10,  shift=4, pattern=1)
-    change_set_immediately: FlagField  = FlagField(mask=0x20,  shift=5, pattern=1)
-    relative              : FlagField  = FlagField(mask=0x40,  shift=6, pattern=1)
-    reset_fault           : FlagField  = FlagField(mask=0x80,  shift=7, pattern=1)
-    halt                  : FlagField  = FlagField(mask=0x100, shift=8, pattern=1)
+    shutdown              : FlagField = FlagField(mask=0x7,   shift=0, pattern=0b110)
+    switch_on             : FlagField = FlagField(mask=0xF,   shift=0, pattern=0b111)
+    disable_voltage       : FlagField = FlagField(mask=0x2,   shift=1, pattern=0b0)
+    quick_stop            : FlagField = FlagField(mask=0xF,   shift=1, pattern=0b01)
+    disable_operation     : FlagField = FlagField(mask=0xF,   shift=0, pattern=0b0111)
+    enable_operation      : FlagField = FlagField(mask=0xF,   shift=0, pattern=0b1111)
+    new_set_point         : FlagField = FlagField(mask=0x10,  shift=4, pattern=1)
+    start_homing_operation: FlagField = FlagField(mask=0x10,  shift=4, pattern=1)
+    enable_ip_mode        : FlagField = FlagField(mask=0x10,  shift=4, pattern=1)
+    change_set_immediately: FlagField = FlagField(mask=0x20,  shift=5, pattern=1)
+    relative              : FlagField = FlagField(mask=0x40,  shift=6, pattern=1)
+    reset_fault           : FlagField = FlagField(mask=0x80,  shift=7, pattern=1)
+    halt                  : FlagField = FlagField(mask=0x100, shift=8, pattern=1)
     # fmt on
 
 
 class Status(CanObjectBase):
     INDEX, SUB_INDEX, SIZE, _object_name = 0x6041, 0, 2, "status"
     # fmt: off
-    # DSP402 State Flags (derived from bits 0-3, 5, 6 as per Tab 7.4)
+    # DSP402 State Flags
     not_ready_to_switch_on: FlagField = FlagField(mask=0x4F, shift=0, pattern=0x00)
     switch_on_disabled    : FlagField = FlagField(mask=0x4F, shift=0, pattern=0x40)
     ready_to_switch_on    : FlagField = FlagField(mask=0x6F, shift=0, pattern=0x21)
@@ -153,7 +153,7 @@ class Status(CanObjectBase):
     fault_reaction_active : FlagField = FlagField(mask=0x4F, shift=0, pattern=0x0F)
     fault                 : FlagField = FlagField(mask=0x4F, shift=0, pattern=0x08)
 
-    # Individual Status Bits as per Tab 7.5
+    # More Status bits
     voltage_enabled       : FlagField = FlagField(mask=(1<<4),  shift=4,  pattern=1)
     warning               : FlagField = FlagField(mask=(1<<7),  shift=7,  pattern=1)
     drive_is_moving       : FlagField = FlagField(mask=(1<<8),  shift=8,  pattern=1)
@@ -163,13 +163,13 @@ class Status(CanObjectBase):
 
     # Bit 12 - mode dependent flags
     set_point_acknowledge : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1)
-    speed_0               : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1) # Same bit, different meaning
-    homing_attained       : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1) # Same bit, different meaning
-    ip_mode_active        : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1) # Same bit, different meaning
+    speed_0               : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1)
+    homing_attained       : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1)
+    ip_mode_active        : FlagField = FlagField(mask=(1<<12), shift=12, pattern=1)
 
     # Bit 13 - mode dependent flags
     following_error       : FlagField = FlagField(mask=(1<<13), shift=13, pattern=1)
-    homing_error          : FlagField = FlagField(mask=(1<<13), shift=13, pattern=1) # Same bit, different meaning
+    homing_error          : FlagField = FlagField(mask=(1<<13), shift=13, pattern=1)
 
     manufacturer_statusbit: FlagField = FlagField(mask=(1<<14), shift=14, pattern=1)
     drive_referenced      : FlagField = FlagField(mask=(1<<15), shift=15, pattern=1)
@@ -178,16 +178,16 @@ class Status(CanObjectBase):
 
 class EnableLogic(CanObjectBase):
     INDEX, SUB_INDEX, SIZE, _object_name = 0x6510, 0x10, 2, "enable_logic"
-    enable_logic: ValueField = ValueField(mask=0x3, shift=0)  # This is a 2-bit value
+    enable_logic: ValueField = ValueField(mask=0x3, shift=0)
 
 
 class ModesOfOperation(CanObjectBase):
     INDEX, SUB_INDEX, SIZE, _object_name = 0x6060, 0, 1, "modes_of_operation"
     # fmt: off
-    profile_position_mode     : FlagField = FlagField(mask=0xFF, shift=0, pattern=1)
-    profile_velocity_mode     : FlagField = FlagField(mask=0xFF, shift=0, pattern=3)
-    torque_profile_mode       : FlagField = FlagField(mask=0xFF, shift=0, pattern=4)
-    homing_mode               : FlagField = FlagField(mask=0xFF, shift=0, pattern=6)
+    profile_position_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=1)
+    profile_velocity_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=3)
+    torque_profile_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=4)
+    homing_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=6)
     interpolated_position_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=7)
     # fmt on
 
@@ -200,7 +200,7 @@ class LimitSwitchPolarity(CanObjectBase):
     INDEX, SUB_INDEX, SIZE, _object_name = 0x6510, 0x11, 2, "limit_switch_polarity"
     # fmt: off
     normally_closed: FlagField = FlagField(mask=0b1, shift=0, pattern=0)
-    normally_open  : FlagField = FlagField(mask=0b1, shift=0, pattern=1)
+    normally_open:   FlagField = FlagField(mask=0b1, shift=0, pattern=1)
     # fmt on
 
 
@@ -227,9 +227,9 @@ class ProfileDeceleration(CanObjectBase):
 class ManufacturerStatusWord1(CanObjectBase):
     INDEX, SUB_INDEX, SIZE, _object_name = 0x2000, 1, 4, "manufacturer_status_word1"
     # fmt: off
-    is_referenced      : FlagField = FlagField(mask=(1<<0), shift=0, pattern=1)
-    communication_valid: FlagField = FlagField(mask=(1<<1), shift=1, pattern=1)
-    ready_for_enable   : FlagField = FlagField(mask=(1<<2), shift=2, pattern=1)
+    is_referenced:       FlagField = FlagField(mask=(1 << 0), shift=0, pattern=1)
+    communication_valid: FlagField = FlagField(mask=(1 << 1), shift=1, pattern=1)
+    ready_for_enable:    FlagField = FlagField(mask=(1 << 2), shift=2, pattern=1)
     # fmt on
 
 
