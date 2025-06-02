@@ -2,8 +2,7 @@
 name = "festo-ctrl"
 version = "0.1.0"
 description = "Add your description here"
+keywords = ["linear stage", "festo", "CAN", "serial"]
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = [
-    "pyserial>=3.5",
-]
+requires-python = ">=3.10"
+dependencies = ["pyserial>=3.5"]

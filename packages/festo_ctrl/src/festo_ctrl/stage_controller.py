@@ -3,11 +3,10 @@ from __future__ import annotations
 import ctypes
 import time
 from fractions import Fraction
-from typing import Callable, Tuple, overload
+from typing import Callable, Tuple
 
 import serial
-
-from festo_can_objs import *
+from festo_ctrl.can_objects import *
 
 AXIS_FEED_MM_PER_REV = 10.0
 MOTOR_TO_AXIS_GEAR_RATION = 1.0
@@ -15,7 +14,17 @@ MOTOR_TO_AXIS_GEAR_RATION = 1.0
 
 class FestoDevice:
     def __init__(self, port: str):
-        self.serial = serial.Serial(port=port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=None, xonxoff=False, rtscts=True, dsrdtr=False, )
+        self.serial = serial.Serial(
+            port=port,
+            baudrate=9600,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=None,
+            xonxoff=False,
+            rtscts=True,
+            dsrdtr=False,
+        )
         self.last_object_read: Tuple[int, int, int] = (0x0, 0x0, 0x0)
 
     def _serial_write(self, msg: str) -> None:
@@ -72,7 +81,7 @@ class SerialController:
         def is_done():
             nonlocal start
             while time.time() - start < 10:
-                time.sleep(.1)
+                time.sleep(0.1)
             return True
 
         return is_done
@@ -87,7 +96,7 @@ class SerialController:
         def is_done():
             nonlocal start
             while time.time() - start < 10:
-                time.sleep(.1)
+                time.sleep(0.1)
             return True
 
         return is_done
@@ -162,9 +171,16 @@ class CANController:
 
     def _get_drive_state(self):
         status_value = self.status.read()
-        for field_name in ['not_ready_to_switch_on', 'switch_on_disabled',
-                           'ready_to_switch_on', 'switched_on', 'operation_enable',
-                           'quick_stop_active', 'fault_reaction_active', 'fault']:
+        for field_name in [
+            "not_ready_to_switch_on",
+            "switch_on_disabled",
+            "ready_to_switch_on",
+            "switched_on",
+            "operation_enable",
+            "quick_stop_active",
+            "fault_reaction_active",
+            "fault",
+        ]:
             if getattr(Status, field_name).read(status_value):
                 return field_name
         raise RuntimeError("Failed to find drive state")
@@ -176,10 +192,14 @@ class CANController:
             if current_state == state_name:
                 return True
             if current_state == "fault":
-                raise RuntimeError("Device entered FAULT state while waiting for {state_name}.")
+                raise RuntimeError(
+                    "Device entered FAULT state while waiting for {state_name}."
+                )
             time.sleep(0.1)
             current_state = self._get_drive_state()
-        raise TimeoutError(f"Timeout waiting for state {state_name}. Last state: {current_state}")
+        raise TimeoutError(
+            f"Timeout waiting for state {state_name}. Last state: {current_state}"
+        )
 
     def can_start(self):
         current_state = self._get_drive_state()
@@ -193,7 +213,9 @@ class CANController:
         if not self.status.read("remote"):
             time.sleep(0.2)  # Give it a moment
             if not self.status.read("remote"):
-                raise RuntimeError("Device did not switch to remote mode after enabling logic.")
+                raise RuntimeError(
+                    "Device did not switch to remote mode after enabling logic."
+                )
         print("Remote mode enabled.")
 
         # Refresh state
@@ -241,12 +263,3 @@ class FestoController(CANController, SerialController):
         device = FestoDevice(port)
         SerialController.__init__(self, device)
         CANController.__init__(self, device)
-
-
-if __name__ == "__main__":
-    ctrl = FestoController("COM3")
-    ctrl.can_start()
-    # wait_for_homing = ctrl.do_homing()
-    # wait_for_homing()
-    # wait_for_prog = ctrl.do_program(10)
-    ctrl.move_to(0, a=300, v=1000, relative=False)

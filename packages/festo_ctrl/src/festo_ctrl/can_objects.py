@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from linear_stage import FestoDevice
+    from festo_ctrl.stage_controller import FestoDevice
 
 
 class SdoAccessError(enum.Enum):
@@ -137,7 +137,7 @@ class Control(CanObjectBase):
     relative              : FlagField = FlagField(mask=0x40,  shift=6, pattern=1)
     reset_fault           : FlagField = FlagField(mask=0x80,  shift=7, pattern=1)
     halt                  : FlagField = FlagField(mask=0x100, shift=8, pattern=1)
-    # fmt on
+    # fmt: on
 
 
 class Status(CanObjectBase):
@@ -173,7 +173,7 @@ class Status(CanObjectBase):
 
     manufacturer_statusbit: FlagField = FlagField(mask=(1<<14), shift=14, pattern=1)
     drive_referenced      : FlagField = FlagField(mask=(1<<15), shift=15, pattern=1)
-    # fmt on
+    # fmt: on
 
 
 class EnableLogic(CanObjectBase):
@@ -189,7 +189,7 @@ class ModesOfOperation(CanObjectBase):
     torque_profile_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=4)
     homing_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=6)
     interpolated_position_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=7)
-    # fmt on
+    # fmt: on
 
 
 class ModesOfOperationDisplay(CanObjectBase):
@@ -201,7 +201,7 @@ class LimitSwitchPolarity(CanObjectBase):
     # fmt: off
     normally_closed: FlagField = FlagField(mask=0b1, shift=0, pattern=0)
     normally_open:   FlagField = FlagField(mask=0b1, shift=0, pattern=1)
-    # fmt on
+    # fmt: on
 
 
 class TargetPosition(CanObjectBase):
@@ -230,7 +230,7 @@ class ManufacturerStatusWord1(CanObjectBase):
     is_referenced:       FlagField = FlagField(mask=(1 << 0), shift=0, pattern=1)
     communication_valid: FlagField = FlagField(mask=(1 << 1), shift=1, pattern=1)
     ready_for_enable:    FlagField = FlagField(mask=(1 << 2), shift=2, pattern=1)
-    # fmt on
+    # fmt: on
 
 
 class PositionFactorNumerator(CanObjectBase):
