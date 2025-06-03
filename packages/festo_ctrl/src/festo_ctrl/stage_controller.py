@@ -201,6 +201,18 @@ class CANController:
             f"Timeout waiting for state {state_name}. Last state: {current_state}"
         )
 
+    @property
+    def stopped(self) -> bool:
+        return not self.status.read("drive_is_moving")
+
+    def wait_for_stopped(self, timeout=None, poll_interval: float = 0.1) -> bool:
+        start_time = time.time()
+        while self.status.read("drive_is_moving"):
+            if timeout is not None and time.time() - start_time > timeout:
+                return False
+            time.sleep(poll_interval)
+        return True
+
     def can_start(self):
         current_state = self._get_drive_state()
         print(f"Initial state: {current_state}.")
