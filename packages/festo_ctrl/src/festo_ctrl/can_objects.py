@@ -56,13 +56,12 @@ class FlagField:
     def read(self, raw_object_value: int) -> bool:
         return ((raw_object_value & self.mask) >> self.shift) == self.pattern
 
-    def write(self, current_object_value: int) -> int:
-        # When "writing" a flag, we set its defined pattern.
-        # The actual value passed in update() for a FlagField is ignored,
-        # its presence implies setting the flag.
-        return (current_object_value & ~self.mask) | (
-            (self.pattern << self.shift) & self.mask
-        )
+    def write(self, current_object_value: int, value_to_set: int) -> int:
+        # clear bits, in case of flag disable, bits are 0, not inverted pattern, ...
+        new_value = current_object_value & ~self.mask
+        if value_to_set:
+            new_value |= (self.pattern << self.shift) & self.mask
+        return new_value
 
 
 FieldDefinition = Union[ValueField, FlagField]
@@ -96,21 +95,13 @@ class CanObjectBase:
         return self._device.object_write(self, value)
 
     def update(self, **fields: int) -> int:
-        current_val = self._device.object_read(self)
+        new_value = self._device.object_read(self)
 
         for field_name, value_to_set in fields.items():
             field_def = self._get_field_def(field_name)
-            if isinstance(field_def, ValueField):
-                current_val = field_def.write(current_val, value_to_set)
-            elif isinstance(field_def, FlagField):
-                if value_to_set:  # Or any true-ish value
-                    current_val = field_def.write(current_val)
-                else:
-                    current_val = (
-                        current_val & ~field_def.mask
-                    )  # Clears all bits in the mask
+            new_value = field_def.write(new_value, value_to_set)
 
-        return self._device.object_write(self, current_val)
+        return self._device.object_write(self, new_value)
 
     @classmethod
     def field_names(cls) -> list[str]:
@@ -184,10 +175,10 @@ class EnableLogic(CanObjectBase):
 class ModesOfOperation(CanObjectBase):
     INDEX, SUB_INDEX, SIZE, _object_name = 0x6060, 0, 1, "modes_of_operation"
     # fmt: off
-    profile_position_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=1)
-    profile_velocity_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=3)
-    torque_profile_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=4)
-    homing_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=6)
+    profile_position_mode     : FlagField = FlagField(mask=0xFF, shift=0, pattern=1)
+    profile_velocity_mode     : FlagField = FlagField(mask=0xFF, shift=0, pattern=3)
+    torque_profile_mode       : FlagField = FlagField(mask=0xFF, shift=0, pattern=4)
+    homing_mode               : FlagField = FlagField(mask=0xFF, shift=0, pattern=6)
     interpolated_position_mode: FlagField = FlagField(mask=0xFF, shift=0, pattern=7)
     # fmt: on
 
