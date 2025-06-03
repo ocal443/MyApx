@@ -57,7 +57,11 @@ class FlagField:
         return ((raw_object_value & self.mask) >> self.shift) == self.pattern
 
     def write(self, current_object_value: int, value_to_set: int) -> int:
-        # clear bits, in case of flag disable, bits are 0, not inverted pattern, ...
+        # Clear target bits first to handle overlapping masks and ensure clean state.
+        # Disabling a flag means clearing bits to 0, not inverting the pattern.
+        # Only set the specific pattern when enabling (value_to_set is truthy).
+        # WARNING: For overlapping flags (e.g., DSP402 state machine), set only one
+        # flag at a time - they're enum-like, not independent boolean flags.
         new_value = current_object_value & ~self.mask
         if value_to_set:
             new_value |= (self.pattern << self.shift) & self.mask
