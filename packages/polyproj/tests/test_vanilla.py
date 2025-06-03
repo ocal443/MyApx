@@ -4,6 +4,7 @@ from itertools import product
 import numpy as np
 import pytest
 
+# from polyproj import project_on_polyline_cpp as project_on_polyline
 from polyproj.opencl import project_on_polyline_opencl as project_on_polyline
 from polyproj.utils import ProjectionResult
 from polyproj.vanilla import project_on_polyline_naive as project_on_polyline_base
@@ -135,8 +136,8 @@ def test_return_combinations(
 
 def test_random_equivalence():
     np.random.seed(0)
-    N = 100
-    M = 10
+    N = 10_000
+    M = 1024
     pts = np.random.rand(N, 2)
     seg = np.random.rand(M, 2, 2)
     base_res = project_on_polyline_base(

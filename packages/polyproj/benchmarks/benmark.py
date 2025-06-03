@@ -8,7 +8,7 @@ from typing import Dict
 import numpy as np
 
 from polyproj.vanilla import project_on_polyline_blockwise, project_on_polyline_naive
-
+from polyproj import project_on_polyline_cpp
 from polyproj.opencl import project_on_polyline_opencl
 
 
@@ -28,7 +28,7 @@ def run_benchmark(n_points: int, n_segments: int, repeat: int = 3) -> Dict:
 
     # Test each implementation
     implementations = {
-        "Naive": project_on_polyline_naive,
+        "Naive": project_on_polyline_cpp,
         "Blockwise": lambda p, s: project_on_polyline_blockwise(
             p, s, block_size=min(64, n_segments)
         ),
