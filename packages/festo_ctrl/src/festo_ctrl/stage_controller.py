@@ -6,6 +6,7 @@ from fractions import Fraction
 from typing import Callable, Tuple
 
 import serial
+
 from festo_ctrl.can_objects import *
 
 AXIS_FEED_MM_PER_REV = 10.0

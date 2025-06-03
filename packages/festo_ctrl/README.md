@@ -74,7 +74,8 @@ controller.move_to(
 
 ```python
 # Perform homing sequence
-wait_for_homing = controller.do_homing()
+controller.do_homing()
+controller.wait_for_stopped()
 # Homing operation runs asynchronously - check completion if needed
 ```
 
