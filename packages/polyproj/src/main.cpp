@@ -11,8 +11,12 @@ namespace py = pybind11;
 
 // Project points onto a polyline (segments) and return a dict of results.
 // points: shape (N,2), segments: shape (M,2,2)
+
+using array_t = py::array_t<double, py::array::c_style | py::array::forcecast>;
+
 py::dict
-project_on_polyline(py::array_t<double> points, py::array_t<double> segments,
+project_on_polyline(array_t points,
+                    array_t segments,
                     bool return_distance = true, bool return_projection = false,
                     bool return_param = false, bool return_index = false) {
   // Validate and unpack points
