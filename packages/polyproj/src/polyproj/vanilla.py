@@ -10,7 +10,16 @@ def project_on_polyline_naive(
     return_param: bool = False,
     return_index: bool = False,
 ) -> ProjectionResult:
-    """Baseline loop implementation for projection (no blocking)."""
+    """Baseline loop implementation for projection (no blocking).
+
+    Args:
+        points: Array of points to project, shape (N, 2)
+        segments: Array of line segments, shape (M, 2, 2)
+        return_distance: Whether to return distances
+        return_projection: Whether to return projection points
+        return_param: Whether to return parameter values
+        return_index: Whether to return segment indices
+    """
     N = points.shape[0]
     best_dist_sq = np.full(N, np.inf)
     best_proj = np.empty((N, 2)) if return_projection else None

@@ -26,7 +26,6 @@ def project_on_polyline_cpp(
     Returns:
         ProjectionResult
     """
-    # call into the binding, which returns a dict
     result_dict = _project_on_polyline_cpp(
         points,
         segments,
@@ -36,10 +35,9 @@ def project_on_polyline_cpp(
         return_index=return_index,
     )
 
-    # wrap into the same ProjectionResult signature as the other implementations
     return ProjectionResult(
-        distances=result_dict["distances"],
-        projections=result_dict["projections"],
-        params=result_dict["params"],
-        indices=result_dict["indices"],
+        distances=result_dict.get("distances", None),
+        projections=result_dict.get("projections", None),
+        params=result_dict.get("params", None),
+        indices=result_dict.get("indices", None),
     )

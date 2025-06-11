@@ -3,6 +3,7 @@ project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
 
 set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
+set(CMAKE_CXX_STANDARD 23)
 
 if (MSVC)
     set_source_files_properties(src/main.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2" "/O2" "/fp:fast")
