@@ -1,15 +1,14 @@
-import hashlib
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pyopencl as cl
 
 from polyproj.utils import ProjectionResult
 
-# Module-level OpenCL context and cache
+# Module-level OpenCL context and program
 _ctx: Optional[cl.Context] = None
 _queue: Optional[cl.CommandQueue] = None
-_program_cache: Dict[str, cl.Program] = {}
+_program: Optional[cl.Program] = None
 
 
 def _get_context_and_queue():
@@ -17,15 +16,13 @@ def _get_context_and_queue():
     global _ctx, _queue
 
     if _ctx is None:
-        # Get first available platform and device
-        platforms = cl.get_platforms()
-        if not platforms:
-            raise RuntimeError("No OpenCL platforms found")
+        # Use PyOpenCL's built-in context creation which respects PYOPENCL_CTX
+        _ctx = cl.create_some_context()
 
-        gpu_devices = platforms[0].get_devices(device_type=cl.device_type.GPU)
-        _ctx = cl.Context(devices=[gpu_devices[0]])
-        device_name = gpu_devices[0].name
-        device_type = "GPU"
+        # Get device info for logging
+        device = _ctx.devices[0]
+        device_name = device.name
+        device_type = cl.device_type.to_string(device.type)
 
         _queue = cl.CommandQueue(_ctx)
         print(f"Using OpenCL device: {device_name} ({device_type})")
@@ -33,17 +30,22 @@ def _get_context_and_queue():
     return _ctx, _queue
 
 
-def _get_program(source: str) -> cl.Program:
-    """Get a compiled program from cache or compile it"""
+def _get_program() -> cl.Program:
+    """Get the compiled program, building it once if needed"""
+    global _program
     ctx, _ = _get_context_and_queue()
 
-    # Create a hash of the source as cache key
-    source_hash = hashlib.md5(source.encode("utf-8")).hexdigest()
+    if _program is None:
+        # Build with optimization flags for better performance
+        build_options = [
+            "-cl-fast-relaxed-math",  # Allow optimizations that may reduce precision
+            "-cl-mad-enable",         # Enable multiply-add instructions
+            "-Werror"                 # Treat warnings as errors
+        ]
 
-    if source_hash not in _program_cache:
-        _program_cache[source_hash] = cl.Program(ctx, source).build()
+        _program = cl.Program(ctx, _KERNEL_SOURCE).build(options=build_options)
 
-    return _program_cache[source_hash]
+    return _program
 
 
 # OpenCL kernel for polyline projection
@@ -80,15 +82,12 @@ __kernel void project_points(
         float t;
         float2 proj;
 
-        if (v_norm_sq < 1e-10f) {
-            t = 0.0f;
-            proj = a;
-        } else {
-            float2 w = point - a;
-            t = dot(w, v) / v_norm_sq;
-            t = clamp(t, 0.0f, 1.0f);
-            proj = a + t * v;
-        }
+        float v_norm_sq_safe = (v_norm_sq < 1e-10f) ? 1.0f : v_norm_sq;
+        float2 w = point - a;
+        t = dot(w, v) / v_norm_sq_safe;
+        t = clamp(t, 0.0f, 1.0f);
+        t = (v_norm_sq < 1e-10f) ? 0.0f : t;
+        proj = a + t * v;
 
         float2 diff = point - proj;
         float dist_sq = dot(diff, diff);
@@ -119,7 +118,7 @@ def project_on_polyline_opencl(
 ) -> ProjectionResult:
     ctx, queue = _get_context_and_queue()
 
-    program = _get_program(_KERNEL_SOURCE)
+    program = _get_program()
 
     n_points = points.shape[0]
     n_segments = segments.shape[0]
